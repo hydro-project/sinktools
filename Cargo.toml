@@ -1,73 +1,43 @@
-[workspace]
-
-# See "Adding new crates" and "Moving crates" addendum sections in `RELEASING.md`
-members = [
-    "benches",
-    "copy_span",
-    "dfir_lang",
-    "dfir_macro",
-    "dfir_rs",
-    "dfir_pipes",
-    "example_test",
-    "hydro_deploy/core",
-    "hydro_deploy/hydro_deploy_integration",
-    "hydro_lang",
-    "hydro_std",
-    "hydro_test",
-    "hydro_test_embedded",
-    "hydro_test_template",
-    "include_mdtests",
-    "lattices_macro",
-    "lattices",
-    "multiplatform_test",
-    "sinktools",
-    "variadics_macro",
-    "variadics",
-    "website_playground",
-]
-exclude = ["template"]
-
-resolver = "2"
-
-[workspace.package]
+[package]
+name = "sinktools"
+version = "0.2.0-alpha.2"
+description = "Extra sink adaptors and helpers."
+documentation = "https://docs.rs/sinktools/"
 edition = "2024"
 license = "Apache-2.0"
-repository = "https://github.com/hydro-project/hydro"
+repository = "https://github.com/hydro-project/sinktools"
 
-[profile.release]
-strip = true      # Strip symbols from the binary
-# Previously this was "z" to minimize docker binary size while sacrificing performance. But "z"
-# doesn't make things that much smaller, `strip` is far more important for binary size. Use "3" for
-# performance.
-opt-level = 3
-lto = "fat"
-codegen-units = 1
+[package.metadata.docs.rs]
+all-features = true
 
-[profile.profile]
-inherits = "release"
-debug = 2
-lto = "off"
-strip = "none"
+[features]
+default = ["std", "variadics"]
+std = ["futures-util/std", "variadics?/std"]
+variadics = ["dep:variadics"]
 
-[profile.dev]
-debug = "line-tables-only"
+[dependencies]
+futures-util = { version = "0.3", default-features = false, features = [
+    "sink",
+] }
+pin-project-lite = "0.2"
+sealed = "0.6"
+variadics = { optional = true, default-features = false, version = "^0.2.0-alpha.1" }
 
-[profile.dev.package."*"]
-debug = false
+[dev-dependencies]
+bytes = "1.1.0"
+futures-task = { version = "0.3" }
+sinktools = { path = ".", features = ["std"] }
+tokio = { version = "1.29.0", default-features = false, features = ["macros", "rt"] }
+tokio-stream = { version = "0.1.3", default-features = false }
+tokio-util = { version = "0.7.5", default-features = false, features = ["net", "codec"] }
 
-[profile.dev.package.website_playground]
-debug-assertions = false
-
-[profile.release.package.website_playground]
-opt-level = "s"
-
-[workspace.lints.rust]
+[lints.rust]
 impl_trait_overcaptures = "warn"
 missing_unsafe_on_extern = "deny"
 unsafe_attr_outside_unsafe = "deny"
 unused_qualifications = "warn"
 
-[workspace.lints.clippy]
+[lints.clippy]
 alloc_instead_of_core = "warn"
 allow_attributes = "warn"
 allow_attributes_without_reason = "warn"
@@ -81,7 +51,3 @@ str_to_string = "warn"
 try_err = "warn"
 uninlined_format_args = "allow"
 unused_async = "warn"
-
-[workspace.dependencies]
-stageleft = "0.14.1"
-stageleft_tool = "0.14.1"

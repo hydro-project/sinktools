@@ -6,14 +6,10 @@ on:
       - main
   pull_request:
   schedule:
-    - cron: "35 03 * * *" # Daily at 8:35 PM PDT, 7:35 PM PST.
+    - cron: "43 03 * * *" # Daily at 8:43 PM PDT, 7:43 PM PST.
   workflow_dispatch:
 
 permissions: {}
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.pull_request.base.sha }}-${{ github.event_name }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -35,34 +31,13 @@ jobs:
   lint:
     name: All lints and compilation checks
     if: ${{ needs.pre_job.outputs.should_skip != 'true' || github.event_name != 'pull_request' }}
-    timeout-minutes: 90
+    timeout-minutes: 5
     needs: pre_job
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        rust_release: [latest-nightly, latest-stable]
-        exclude:
-          # For non-pull requests, event_name != 'pull_request' will be true, and 'nothing' is
-          # truthy, so the entire && operator will resolve to 'nothing'. Then the || operator will
-          # resolve to 'nothing' so we will exclude 'nothing'. https://stackoverflow.com/a/73822998
-          - rust_release: ${{ (((github.event_name != 'pull_request' && github.event_name != 'push') || (github.event_name == 'pull_request' && (contains(github.event.pull_request.title, '[ci-full]') || contains(github.event.pull_request.body, '[ci-full]')))) && 'nothing') || 'latest-nightly' }}
-          - os: ${{ (((github.event_name != 'pull_request') || (github.event_name == 'pull_request' && (contains(github.event.pull_request.title, '[ci-full]') || contains(github.event.pull_request.body, '[ci-full]')))) && 'nothing') || 'windows-latest' }}
-          - os: ${{ (((github.event_name != 'pull_request') || (github.event_name == 'pull_request' && (contains(github.event.pull_request.title, '[ci-full]') || contains(github.event.pull_request.body, '[ci-full]')))) && 'nothing') || 'macos-latest' }}
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout sources
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Install rust channel and set it as default
-        if: ${{ matrix.rust_release == 'latest-nightly' }}
-        run: |
-          rustup toolchain add nightly && \
-          rustup default nightly
-
-      - if: matrix.rust_release == 'latest-stable' && matrix.os == 'ubuntu-latest'
-        uses: ./.github/actions/use-sccache
 
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo clippy --all-targets --no-default-features -- -D warnings
@@ -74,77 +49,21 @@ jobs:
   test:
     name: All tests
     if: ${{ needs.pre_job.outputs.should_skip != 'true' || github.event_name != 'pull_request' }}
-    timeout-minutes: 90
+    timeout-minutes: 5
     needs: pre_job
-    runs-on: ${{ matrix.os }}
-    permissions:
-      issues: write
-    env:
-      RUSTUP_TOOLCHAIN: ${{ matrix.rust_release == 'latest-nightly' && 'nightly' || '' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        rust_release: [latest-nightly, latest-stable]
-        exclude:
-          # For non-pull requests, event_name != 'pull_request' will be true, and 'nothing' is
-          # truthy, so the entire && operator will resolve to 'nothing'. Then the || operator will
-          # resolve to 'nothing' so we will exclude 'nothing'. https://stackoverflow.com/a/73822998
-          - rust_release: ${{ (((github.event_name != 'pull_request' && github.event_name != 'push') || (github.event_name == 'pull_request' && (contains(github.event.pull_request.title, '[ci-full]') || contains(github.event.pull_request.body, '[ci-full]')))) && 'nothing') || 'latest-nightly' }}
-          - os: ${{ (((github.event_name != 'pull_request') || (github.event_name == 'pull_request' && (contains(github.event.pull_request.title, '[ci-full]') || contains(github.event.pull_request.body, '[ci-full]')))) && 'nothing') || 'windows-latest' }}
-          - os: ${{ (((github.event_name != 'pull_request') || (github.event_name == 'pull_request' && (contains(github.event.pull_request.title, '[ci-full]') || contains(github.event.pull_request.body, '[ci-full]')))) && 'nothing') || 'macos-latest' }}
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout sources
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Install nightly toolchain if necessary
-        if: ${{ matrix.rust_release == 'latest-nightly' }}
-        run: |
-          rustup toolchain add nightly
-
-      - name: Install targets for the current toolchain (set by RUSTUP_TOOLCHAIN env var)
-        run: rustup target add x86_64-unknown-linux-musl
-
-      - name: Install components for the current toolchain (set by RUSTUP_TOOLCHAIN env var)
-        run: rustup component add rustfmt clippy rust-src
-
-      - if: matrix.rust_release == 'latest-stable' && matrix.os == 'ubuntu-latest'
-        uses: ./.github/actions/use-sccache
-
       - uses: taiki-e/install-action@2b15ad09ca0f06a76791407e35ab20f0b712d615 # nextest
-
-      - name: Install Java for Maelstrom
-        if: matrix.os != 'windows-latest'
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
-        with:
-          distribution: 'temurin'
-          java-version: '21'
-
-      - name: Download and setup Maelstrom
-        if: matrix.os != 'windows-latest'
-        run: |
-          MAELSTROM_DIR=$(mktemp -d)
-          curl -L -o "$MAELSTROM_DIR/maelstrom.tar.bz2" https://github.com/jepsen-io/maelstrom/releases/download/v0.2.4/maelstrom.tar.bz2
-          echo "301ec71d6b12af0d765edb413f5cf5aa1046b5609bd4e31376a0b549548e5799  $MAELSTROM_DIR/maelstrom.tar.bz2" | sha256sum -c -
-          tar -xjf "$MAELSTROM_DIR/maelstrom.tar.bz2" -C "$MAELSTROM_DIR"
-          echo "MAELSTROM_PATH=$MAELSTROM_DIR/maelstrom/maelstrom" >> $GITHUB_ENV
-
-      - name: Enable Trybuild updating on nightly
-        if: ${{ matrix.rust_release == 'latest-nightly' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
-        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
-        with:
-          script: |
-            core.exportVariable('TRYBUILD', 'overwrite');
 
       - name: Run cargo nextest on all targets
         id: nextest
-        continue-on-error: ${{ matrix.rust_release == 'latest-nightly' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
         env:
-          INSTA_UPDATE: ${{ (matrix.rust_release == 'latest-nightly' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')) && 'always' || '' }}
-          INSTA_FORCE_PASS: ${{ (matrix.rust_release == 'latest-nightly' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')) && '1' || '' }}
           RUST_BACKTRACE: "1"
-        run: cargo nextest run --no-fail-fast --all-targets --features "deploy,test_embedded,test_ecs,test_docker"
+        run: cargo nextest run --no-fail-fast --all-targets --all-features
 
       - name: Run doctests
         id: doctests
@@ -155,212 +74,3 @@ jobs:
           RUSTDOCFLAGS: ${{ matrix.rust_release == 'latest-nightly' && '-Zunstable-options --no-capture' || '' }}
           RUST_BACKTRACE: "1"
         run: cargo test --no-fail-fast --doc
-
-      # Nightly snapshot update logic
-      - name: Check for snapshot changes (nightly only)
-        if: matrix.rust_release == 'latest-nightly' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && matrix.os == 'ubuntu-latest'
-        id: check_snapshot_changes
-        run: |
-          if git diff --quiet; then
-            echo "No snapshot changes detected"
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-          else
-            echo "Snapshot changes detected"
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Generate token
-        if: matrix.rust_release == 'latest-nightly' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && matrix.os == 'ubuntu-latest' && steps.check_snapshot_changes.outputs.has_changes == 'true'
-        id: app-token
-        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-
-      - name: Create Pull Request for snapshot updates
-        if: matrix.rust_release == 'latest-nightly' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && matrix.os == 'ubuntu-latest' && steps.check_snapshot_changes.outputs.has_changes == 'true'
-        uses: peter-evans/create-pull-request@4e1beaa7521e8b457b572c090b25bd3db56bf1c5 # v5
-        id: create_snapshot_pr
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-          commit-message: "chore: update nightly snapshots"
-          author: hydro-project-bot[bot] <132423234+hydro-project-bot[bot]@users.noreply.github.com>
-          title: "chore: update nightly snapshots"
-          body: |
-            [ci-full]
-
-            This PR was automatically generated by the nightly CI run. Updated insta snapshots for nightly Rust builds. Please review the snapshot changes to ensure they are expected.
-          branch: nightly-snapshot-updates
-          delete-branch: true
-          draft: false
-
-      - name: Manage nightly test failure issue
-        if: matrix.rust_release == 'latest-nightly' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && matrix.os == 'ubuntu-latest' && steps.check_snapshot_changes.outputs.has_changes == 'true'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        with:
-          script: |
-            const prNumber = '${{ steps.create_snapshot_pr.outputs.pull-request-number }}';
-            const nextestOutcome = '${{ steps.nextest.outcome }}';
-            const doctestOutcome = '${{ steps.doctests.outcome }}';
-            const hasTestFailures = nextestOutcome === 'failure' || doctestOutcome === 'failure';
-            const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
-
-            // Search for existing nightly failure issue
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              labels: 'nightly,automated',
-              state: 'open'
-            });
-
-            const existingIssue = issues.find(issue =>
-              issue.title.includes('Nightly snapshot update test failures')
-            );
-
-            if (hasTestFailures) {
-              const issueTitle = `🚨 Nightly snapshot update test failures (last failure: ${currentDate})`;
-              const issueBody = `## Nightly Snapshot Update Test Failures
-
-              The nightly CI run has updated snapshots but some tests are still failing.
-
-              **Last Failure Date:** ${currentDate}
-              **Related PR:** ${prNumber ? `#${prNumber}` : 'Not created'}
-              **Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-              ### Latest Test Results
-              - Nextest outcome: ${nextestOutcome}
-              - Doctests outcome: ${doctestOutcome}
-
-              ### Action Required
-              Please investigate the failing tests and determine if:
-              1. The test failures are expected due to nightly Rust changes
-              2. The code needs to be updated to work with nightly Rust
-              3. The snapshots need manual review and adjustment
-
-              This issue is automatically managed by the nightly CI workflow.`;
-
-              if (existingIssue) {
-                // Update existing issue
-                await github.rest.issues.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: existingIssue.number,
-                  title: issueTitle,
-                  body: issueBody
-                });
-                console.log(`Updated existing issue #${existingIssue.number}`);
-              } else {
-                // Create new issue
-                const { data: newIssue } = await github.rest.issues.create({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  title: issueTitle,
-                  body: issueBody,
-                  labels: ['bug', 'nightly', 'automated']
-                });
-                console.log(`Created new issue #${newIssue.number}`);
-              }
-            } else if (existingIssue) {
-              // Tests passed, close existing issue
-
-              // Add a comment explaining the closure
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: existingIssue.number,
-                body: `✅ **Issue Resolved**
-
-                The nightly CI run on ${currentDate} completed successfully after updating snapshots.
-
-                **Related PR:** ${prNumber ? `#${prNumber}` : 'Not created'}
-                **Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-                This issue has been automatically closed.`
-              });
-
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: existingIssue.number,
-                state: 'closed'
-              });
-
-              console.log(`Closed existing issue #${existingIssue.number} - tests now passing`);
-            }
-
-  test-all:
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    name: Test Suite Result (Full Matrix)
-    needs: [test]
-    steps:
-      - run: |
-          result="${{ needs.test.result }}"
-          if [[ $result == "success" || $result == "skipped" ]]; then
-            exit 0
-          else
-            exit 1
-          fi
-
-  test-wasm:
-    name: Test Suite (WebAssembly)
-    if: ${{ needs.pre_job.outputs.should_skip != 'true' || github.event_name != 'pull_request' }}
-    timeout-minutes: 15
-    needs: pre_job
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        rust_release: [latest-nightly, latest-stable]
-        exclude:
-          #   # For non-pull requests, event_name != 'pull_request' will be true, and 'nothing' is
-          #   # truthy, so the entire && operator will resolve to 'nothing'. Then the || operator will
-          #   # resolve to 'nothing' so we will exclude 'nothing'. https://stackoverflow.com/a/73822998
-          - rust_release: ${{ (((github.event_name != 'pull_request' && github.event_name != 'push') || (github.event_name == 'pull_request' && (contains(github.event.pull_request.title, '[ci-full]') || contains(github.event.pull_request.body, '[ci-full]')))) && 'nothing') || 'latest-nightly' }}
-
-    env:
-      RUSTUP_TOOLCHAIN: ${{ matrix.rust_release == 'latest-nightly' && 'nightly' || '' }}
-
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Install nightly toolchain if necessary
-        if: ${{ matrix.rust_release == 'latest-nightly' }}
-        run: |
-          rustup toolchain add nightly
-
-      - name: Install targets for the current toolchain (set by RUSTUP_TOOLCHAIN env var)
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Install components for the current toolchain (set by RUSTUP_TOOLCHAIN env var)
-        run: rustup component add rustfmt clippy rust-src
-
-      - name: Determine wasm-bindgen version
-        id: wasm-bindgen-version
-        run: echo "VERSION=$(cargo pkgid wasm-bindgen-shared | cut -d '@' -f2)" >> "$GITHUB_OUTPUT"
-
-      - name: Install WebAssembly test runner
-        run: cargo install wasm-bindgen-cli@${{ steps.wasm-bindgen-version.outputs.VERSION }}
-
-      - name: Run cargo test
-        env:
-          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
-        run: cargo test -p dfir_rs --target wasm32-unknown-unknown --tests --no-fail-fast
-
-      - run: cargo check -p dfir_rs --target wasm32-unknown-unknown
-
-  test-wasm-all:
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    name: Test Suite Result (WebAssembly Full Matrix)
-    needs: [test-wasm]
-    steps:
-      - run: |
-          result="${{ needs.test-wasm.result }}"
-          if [[ $result == "success" || $result == "skipped" ]]; then
-            exit 0
-          else
-            exit 1
-          fi
